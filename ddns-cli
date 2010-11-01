@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+
+## DDNS (Dynamic DNS) command line client / updater
+## 
+## Easy to use command line utility for creating
+## and updating forward and reverse DNS entries
+## in dynamically updatable domains.
+## 
+## Supports zones on different servers, supports 
+## different keys for each zone, automatically 
+## creates reverse record and removes obsoleted
+## ones.
+## 
+## Example use:
+## $ ddns-cli  server.example.net  192.0.2.1
+## will create a forward A record in example.net zone:
+##   server  3600  IN  A  192.0.2.1
+## and a reverse PTR record in 2.0.192.in-addr.arpa zone:
+##   1       3600  IN  A  server.example.net.
+## 
+## Author: Michal Ludvig <mludvig@logix.net.nz>
+##         http://www.logix.cz/michal/devel/ddns-cli
+## 
+## License: GPL version 2
+##
+## TODO: 
+## * support for config file
+## * IPv6 addresses support
+## * support for other types of records (CNAME, MX, etc)
+## ... anyone keen to help with these items?  ;-)
+
+import os
+import sys
+import re
+
+import dns.query
+import dns.tsigkeyring
+import dns.update
+
+ZONE_SERVER = {}
+ZONE_KEY = {}
+SERVER_KEY = {}
+TTL_DEFAULT = 3600
+
+#ZONE_SERVER['default'] = "127.0.0.1"
+#ZONE_SERVER['example.com'] = "192.0.2.123"
+#ZONE_SERVER['example.net'] = "192.0.2.123"
+#ZONE_KEY['example.com'] = '/etc/rndc.key'
+#ZONE_KEY['example.net'] = 'example_net_key:NH1/N+RvZyrf1kH7/x5+c2MsLdlzL'
+#SERVER_KEY['default'] = '/etc/rndc.key'
+#SERVER_KEY['127.0.0.1'] = 'localhost_key:ZYlgMfmGrnTSzq18uDKdEf1UokF='
+
+execfile("ddns-cli.conf")
+
+keyring = {}
+
+class DdnsError(Exception):
+    pass
+
+class KeyNotFoundInFile(DdnsError):
+    def __init__(self, key_file, key_name):
+        self.key_file = key_file
+        self.key_name = key_name
+
+    def __str__(self):
+        return "%s: %s" % (self.key_file, self.key_name)
+
+def parse_key_file(key_file, key_name):
+    try:
+        f = open(key_file, "r").read()
+        pat = re.compile('key\s+[\'"]?(\S+)[\'"]?\s*{.*?algorithm\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?secret\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?};', re.DOTALL | re.MULTILINE)
+        for key in pat.finditer(f):
+            key = key.groups()
+            if key[0] == key_name:
+                return key
+        raise KeyNotFoundInFile(key_file, key_name)
+
+    except KeyNotFoundInFile, e:
+        raise
+    except Exception, e:
+        sys.stderr.write("Can't parse a keyfile %s: %s\n" % (key_file, e))
+        sys.exit(1)
+
+def find_server(zone):
+    """
+    find_server(zone)
+    
+    Figure out server IP or name for a given 'zone'.
+    Raise an exception if no suitable server is found.
+    """
+    if ZONE_SERVER.has_key(zone):
+        return ZONE_SERVER[zone]
+    elif ZONE_SERVER.has_key('default'):
+        return ZONE_SERVER['default']
+    raise DdnsServerNotFound(zone)
+
+def find_key(zone, server):
+    """
+    find_key(zone, server) -> dns.tsigkeyring
+
+    Figure out a signing key usable for a given zone.
+    """
+    key = None
+    if ZONE_KEY.has_key(zone):
+        key = ZONE_KEY[zone]
+    elif SERVER_KEY.has_key(server):
+        key = SERVER_KEY[server]
+    if not key:
+        raise KeyNotFound(zone, server)
+
+    # key can have one of the following formats:
+    # - inline key: 'algorithm:name:AbCd=='
+    # - file with key name: '/etc/rndc.conf:ddns_key'
+    if os.path.isfile(key.split(":")[0]):
+        key_file, key_name = key.split(":", 1)
+        key_name, key_algo, key_value = parse_key_file(key_file, key_name)
+    else:
+        key_algo, key_name, key_value = key.split(":", 2)
+    print "Key in use: %s:%s (%s)" % (key_name, key_value, key_algo)
+    return dns.tsigkeyring.from_text({key_name : key_value}), key_algo
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        sys.stderr.write("Usage: %s <hostfqdn> <ipv4-addr>\n" % sys.argv[0])
+        sys.stderr.write("E.g.:  %s server.example.net 192.0.2.1\n" % sys.argv[0])
+        sys.exit(1)
+
+    hostfqdn = sys.argv[1]
+    ipv4 = sys.argv[2]
+
+    host_parts = hostfqdn.split(".", 1)
+    ipv4_parts = ipv4.split(".")
+
+    if len(host_parts) != 2:
+        sys.stderr.write("Hostname '%s' is not fully qualified. Append your domain please.\n" % hostfqdn)
+        sys.exit(1)
+
+    if len(ipv4_parts) != 4:
+        sys.stderr.write("Invalid IPv4 address: %s\n" % ipv4)
+        sys.exit(1)
+
+    try:
+        ipv4_parts = [int(nibble) for nibble in ipv4_parts]
+    except ValueError:
+        sys.stderr.write("Invalid IPv4 address: %s\n" % ipv4)
+        sys.exit(1)
+
+    args = {}
+    args['zone_fwd'] = host_parts[1]
+    args['zone_rev'] = "%d.%d.%d.in-addr.arpa" % (ipv4_parts[2], ipv4_parts[1], ipv4_parts[0])
+    args['hostfqdn'] = hostfqdn
+    args['host'] = host_parts[0]
+    args['ipv4'] = ipv4
+    args['reverse_ipv4'] = "%d.%s" % (ipv4_parts[3], args['zone_rev'])
+    args['ttl'] = TTL_DEFAULT
+
+    args['server'] = find_server(args['zone_fwd'])
+    print "server: %(server)s" % args
+    args['keyring'], args['keyalgorithm'] = find_key(args['zone_fwd'], args['server'])
+
+    update = dns.update.Update(args['zone_fwd'], keyring=args['keyring'], keyalgorithm = args['keyalgorithm'])
+    update.replace(args['host'], args['ttl'], 'a', args['ipv4'])
+    response = dns.query.tcp(update, args['server'])
+    print response
+
+# vim:expandtab:ts=4
