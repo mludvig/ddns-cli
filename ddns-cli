@@ -1,33 +1,21 @@
 #!/usr/bin/env python
 
 ## DDNS (Dynamic DNS) command line client / updater
-## 
+##
 ## Easy to use command line utility for creating
 ## and updating forward and reverse DNS entries
 ## in dynamically updatable domains.
-## 
-## Supports zones on different servers, supports 
-## different keys for each zone, automatically 
+##
+## Supports zones on different servers, supports
+## different keys for each zone, automatically
 ## creates reverse record and removes obsoleted
 ## ones.
-## 
-## Example use:
-## $ ddns-cli  server.example.net  192.0.2.1
-## will create a forward A record in example.net zone:
-##   server  3600  IN  A  192.0.2.1
-## and a reverse PTR record in 2.0.192.in-addr.arpa zone:
-##   1       3600  IN  A  server.example.net.
-## 
+##
 ## Author: Michal Ludvig <mludvig@logix.net.nz>
 ##         http://www.logix.cz/michal/devel/ddns-cli
-## 
+##
 ## License: GPL version 2
 ##
-## TODO: 
-## * support for config file
-## * IPv6 addresses support
-## * support for other types of records (CNAME, MX, etc)
-## ... anyone keen to help with these items?  ;-)
 
 import os
 import sys
@@ -41,14 +29,6 @@ ZONE_SERVER = {}
 ZONE_KEY = {}
 SERVER_KEY = {}
 TTL_DEFAULT = 3600
-
-#ZONE_SERVER['default'] = "127.0.0.1"
-#ZONE_SERVER['example.com'] = "192.0.2.123"
-#ZONE_SERVER['example.net'] = "192.0.2.123"
-#ZONE_KEY['example.com'] = '/etc/rndc.key'
-#ZONE_KEY['example.net'] = 'example_net_key:NH1/N+RvZyrf1kH7/x5+c2MsLdlzL'
-#SERVER_KEY['default'] = '/etc/rndc.key'
-#SERVER_KEY['127.0.0.1'] = 'localhost_key:ZYlgMfmGrnTSzq18uDKdEf1UokF='
 
 execfile("ddns-cli.conf")
 
@@ -84,7 +64,7 @@ def parse_key_file(key_file, key_name):
 def find_server(zone):
     """
     find_server(zone)
-    
+
     Figure out server IP or name for a given 'zone'.
     Raise an exception if no suitable server is found.
     """
