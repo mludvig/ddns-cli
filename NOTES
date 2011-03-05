@@ -1,0 +1,34 @@
+ddns-cli - syntax proposal
+--------------------------
+
+Replace all existing records of the same type with a new one
+(I.e. setting an IPv4 address will not touch any IPv6 addrs
+or other records like MX)
+For IPv4 and IPv6 addresses try to set up reverse mapping as well
+unless --no-reverse is used.
+Also try to wipe the old reverse record, e.g. when changing and IP from
+192.0.2.1 to 192.0.2.100 it will attempt to delete 1.2.0.192.in-addr.arpa.
+unless --keep-old-reverse is used. This is also implied by --no-reverse.
+
+	[--set] [--type A] 192.0.2.1 host.example.com
+	[--set] [--type AAAA] 2001:dc0:1234::1 host.example.com
+	[--set] --type NS ns1.example.com example.com
+	[--set] --type MX 1 mail.example.com example.com
+
+Add new record of a given type, do not delete the existing ones.
+For IPv4 and IPv6 addresses try to set up reverse mapping as well
+unless --no-reverse is used.
+
+	--add [--type A] 192.0.2.1 host.example.com
+	--add [--type AAAA] 2001:dc0:1234::1 host.example.com
+	--add --type NS ns2.example.com example.com
+	--add --type MX 2 mail.example.com example.com
+
+Delete a record
+
+	--delete [--type {any,A,AAAA,MX,NS,...}] [--no-reverse] host.example.com
+
+List all the records, optionally filter by a given type
+
+	--list [--type {A,AAAA,MX,...}] example.com
+
