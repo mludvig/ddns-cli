@@ -65,7 +65,7 @@ def error(message):
 def parse_key_file(key_file, key_name):
     try:
         f = open(key_file, "r").read()
-        pat = re.compile('key\s+[\'"]?(\S+)[\'"]?\s*{.*?algorithm\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?secret\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?};', re.DOTALL | re.MULTILINE)
+        pat = re.compile('key\s+[\'"]?(\S+?)[\'"]?\s*{.*?algorithm\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?secret\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?};', re.DOTALL | re.MULTILINE)
         for key in pat.finditer(f):
             key = key.groups()
             if key[0] == key_name:
