@@ -1,0 +1,7 @@
+ZONE_SERVER['default'] = "127.0.0.1"
+ZONE_SERVER['example.com'] = "192.0.2.123"
+ZONE_SERVER['example.net'] = "192.0.2.123"
+ZONE_KEY['example.com'] = '/etc/rndc.key'
+ZONE_KEY['example.net'] = 'example_net_key:NH1/N+RvZyrf1kH7/x5+c2MsLdlzL'
+SERVER_KEY['default'] = '/etc/rndc.key'
+SERVER_KEY['127.0.0.1'] = 'localhost_key:ZYlgMfmGrnTSzq18uDKdEf1UokF='

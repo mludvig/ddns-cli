@@ -242,22 +242,42 @@ class DDnsCli(object):
         ddns_args = self.init_ddns_args()
         records = self.compile_records()
 
-        for record in records:
-            ddns_args['rrvalue'] = record["rrvalue"]
-            ddns_args['rrtype'] = record["rrtype"]
-            ddns_args['ttl'] = self.args.rrttl
+        debug("ddns_args: %r" % ddns_args)
+        update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
 
-            debug("ddns_args: %r" % ddns_args)
-            update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
-            if self.args.replace:
-                update.replace(ddns_args['host'], ddns_args['ttl'], ddns_args['rrtype'], ddns_args['rrvalue'])
-            else:
-                update.add(ddns_args['host'], ddns_args['ttl'], ddns_args['rrtype'], ddns_args['rrvalue'])
-            response = dns.query.tcp(update, ddns_args['server'])
-            info("%s(%s, %s): %s" % (self.args.rrname, ddns_args['rrvalue'], ddns_args['rrtype'], dns.rcode.to_text(response.rcode())))
+        if self.args.replace:
+            op_str = "REPLACE"
+            op_method = update.replace
+        else:
+            op_str = "ADD"
+            op_method = update.add
+
+        for record in records:
+            info("%s: %s.%s(%s, %s)" % (op_str, ddns_args['host'], ddns_args['zone'], record['rrvalue'], record['rrtype']))
+            op_method(ddns_args['host'], self.args.rrttl, record['rrtype'], record['rrvalue'])
+
+        response = dns.query.tcp(update, ddns_args['server'])
+        info("%s: %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
     def cmd_delete(self):
-        raise
+        ddns_args = self.init_ddns_args()
+        records = self.compile_records()
+        debug("ddns_args: %r" % ddns_args)
+        update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+
+        if not records:
+            if not self.args.rrtype:
+                info("DELETE: %s.%s(ANY, ANY)" % (ddns_args['host'], ddns_args['zone']))
+                update.delete(ddns_args['host'])
+            else:
+                info("DELETE: %s.%s(%s, ANY)" % (ddns_args['host'], ddns_args['zone'], self.args.rrtype))
+                update.delete(ddns_args['host'], self.args.rrtype)
+        else:
+            for record in records:
+                info("DELETE: %s.%s(%s, %s)" % (ddns_args['host'], ddns_args['zone'], record['rrtype'], record['rrvalue']))
+                update.delete(ddns_args['host'], record['rrtype'], record['rrvalue'])
+        response = dns.query.tcp(update, ddns_args['server'])
+        info("DELETE: %s" % (dns.rcode.to_text(response.rcode())))
 
 if __name__ == "__main__":
     args = parse_args()
