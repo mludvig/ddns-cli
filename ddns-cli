@@ -47,6 +47,10 @@ class KeyNotFoundInFile(DDnsError):
     def __str__(self):
         return "%s: %s" % (self.key_file, self.key_name)
 
+class DDnsServerNotFound(DDnsError):
+    def __str__(self):
+        return "Server not found for zone: %s" % (self.message)
+
 class ParameterError(DDnsError):
     pass
 
@@ -118,13 +122,17 @@ def find_key(zone, server):
     debug("Key for zone '%s': %s:%s (%s)" % (zone, key_name, key_value, key_algo))
     return dns.tsigkeyring.from_text({key_name : key_value}), key_algo
 
+class DDnsFQDN(str):
+    pass
+
 def parse_args():
-    def _add_common_args(_parser, rrvalue_nargs):
+    def _add_common_args(_parser, rrvalue_nargs = ""):
         _parser.add_argument("--config", type=file, help="Config file location")
         _parser.add_argument("--verbose", action="store_true", help="Verbose operation")
         _parser.add_argument("--debug", action="store_true", help="Extremely verbose operation")
 
         _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA"), help="Record type, e.g. A, AAAA, PTR, etc.")
+        _parser.add_argument("--zone", "-z", dest="zone", type=DDnsFQDN, help="Zone to work with. By default for www.host.example.com the zone would be host.example.com, however you may instead want to put a record 'www.host' into the zone 'example.com'. In that case use --zone example.com.")
         _parser.add_argument("rrname", help="Resource Record Name")
         if rrvalue_nargs:
             _parser.add_argument("rrvalue", nargs=rrvalue_nargs, help="Resource Record Value")
@@ -137,14 +145,14 @@ def parse_args():
     parser_set_group_add_replace.add_argument("--add", "-a", dest="replace", action="store_false", help="Add new record to existing ones.")
     parser_set_group_add_replace.add_argument("--replace", dest="replace", action="store_true", default="true", help="Replace all existing records of the same type with the new one. (default)")
 
-    parser_set.add_argument("--ttl", dest="rrttl", type=int, help="Time To Live")
+    parser_set.add_argument("--ttl", dest="rrttl", type=int, default=TTL_DEFAULT, help="Time To Live")
     _add_common_args(parser_set, rrvalue_nargs = "+")
 
     #parser_get = subparsers.add_parser("get", help="Get all records for the given name")
     #_add_common_args(parser_get, rrvalue_nargs = None)
 
-    #parser_delete = subparsers.add_parser("delete", help="Delete some or all records for the given name")
-    #_add_common_args(parser_delete, rrvalue_nargs = "*")
+    parser_delete = subparsers.add_parser("delete", help="Delete some or all records for the given name")
+    _add_common_args(parser_delete, rrvalue_nargs = "*")
 
     return parser.parse_args()
 
@@ -155,10 +163,50 @@ class DDnsCli(object):
             return self.cmd_set()
         #elif args.command == "get":
         #    return self.cmd_get()
-        #elif args.command == "delete":
-        #    return self.cmd_delete()
+        elif args.command == "delete":
+            return self.cmd_delete()
         else:
             raise ParameterError("Unknown command: %s" % args.command)
+
+    def compile_records(self):
+        records = []
+        if not self.args.rrtype:
+            for rrvalue in self.args.rrvalue:
+                rrtype = self.guess_rr_type(rrvalue)
+                if not rrtype:
+                    raise ParameterError("%s: Unable to guess RR type. Please use --type=..." % rrvalue)
+                debug("Guessed: %s -> %s" % (rrvalue, rrtype))
+                records.append({"rrtype":rrtype, "rrvalue":rrvalue})
+        else:
+            for rrvalue in self.args.rrvalue:
+                if self.verify_rr_type(rrvalue, self.args.rrtype):
+                    records.append({"rrtype":self.args.rrtype, "rrvalue":rrvalue})
+                else:
+                    raise ParameterError("%s: Not a valid %s type value" % (rrvalue, self.args.rrtype))
+        return records
+
+    def init_ddns_args(self):
+        ddns_args = {}
+
+        if self.args.zone:
+            # Explicit zone was specified
+            ddns_args['host'] = self.args.rrname.replace(self.args.zone, "")
+            ddns_args['zone'] = self.args.zone
+        else:
+            # No explicit zone. Guess it from FQDN (rrname)
+            try:
+                ddns_args['host'], ddns_args['zone'] = self.args.rrname.split(".", 1)
+            except ValueError:
+                raise ParameterError("%s: Hostname is not fully qualified. Append your domain please." % self.args.rrname)
+
+        ddns_args['host'] = ddns_args['host'].strip(".")
+        ddns_args['zone'] = ddns_args['zone'].strip(".")
+
+        ddns_args['server'] = find_server(ddns_args['zone'])
+        info("Server for zone '%(zone)s': %(server)s" % ddns_args)
+        ddns_args['keyring'], ddns_args['keyalgorithm'] = find_key(ddns_args['zone'], ddns_args['server'])
+
+        return ddns_args
 
     def guess_rr_type(self, rrvalue):
         if self.verify_rr_type(rrvalue, "A"):
@@ -191,45 +239,31 @@ class DDnsCli(object):
         return rrvalue.count(".") > 0
 
     def cmd_set(self):
-        records = []
-        ddns_args = {}
-
-        if not self.args.rrtype:
-            for rrvalue in self.args.rrvalue:
-                rrtype = self.guess_rr_type(rrvalue)
-                if not rrtype:
-                    raise ParameterError("Unable to guess RR type for: '%s'. Please use --type=..." % rrvalue)
-                debug("Guessed: %s -> %s" % (rrvalue, rrtype))
-                records.append({"rrtype":rrtype, "rrvalue":rrvalue})
-        else:
-            for rrvalue in self.args.rrvalue:
-                if self.verify_rr_type(rrvalue, self.args.rrtype):
-                    records.append({"rrtype":self.args.rrtype, "rrvalue":rrvalue})
-                else:
-                    raise ParameterError("%s: Not a valid %s type value" % (rrvalue, self.args.rrtype))
-
-        try:
-            ddns_args['host'], ddns_args['zone'] = self.args.rrname.split(".", 1)
-        except ValueError:
-            raise ParameterError("Hostname '%s' is not fully qualified. Append your domain please." % self.args.rrname)
-
-        ddns_args['server'] = find_server(ddns_args['zone'])
-        info("Server for zone '%(zone)s': %(server)s" % ddns_args)
-        ddns_args['keyring'], ddns_args['keyalgorithm'] = find_key(ddns_args['zone'], ddns_args['server'])
+        ddns_args = self.init_ddns_args()
+        records = self.compile_records()
 
         for record in records:
             ddns_args['rrvalue'] = record["rrvalue"]
             ddns_args['rrtype'] = record["rrtype"]
-            ddns_args['ttl'] = TTL_DEFAULT
+            ddns_args['ttl'] = self.args.rrttl
 
-            debug(ddns_args)
+            debug("ddns_args: %r" % ddns_args)
             update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
-            update.replace(ddns_args['host'], ddns_args['ttl'], ddns_args['rrtype'], ddns_args['rrvalue'])
+            if self.args.replace:
+                update.replace(ddns_args['host'], ddns_args['ttl'], ddns_args['rrtype'], ddns_args['rrvalue'])
+            else:
+                update.add(ddns_args['host'], ddns_args['ttl'], ddns_args['rrtype'], ddns_args['rrvalue'])
             response = dns.query.tcp(update, ddns_args['server'])
-            info("%s(%s, %s): %r" % (self.args.rrname, ddns_args['rrvalue'], ddns_args['rrtype'], response))
+            info("%s(%s, %s): %s" % (self.args.rrname, ddns_args['rrvalue'], ddns_args['rrtype'], dns.rcode.to_text(response.rcode())))
+
+    def cmd_delete(self):
+        raise
 
 if __name__ == "__main__":
     args = parse_args()
-    ddns_cli = DDnsCli(args)
+    try:
+        ddns_cli = DDnsCli(args)
+    except DDnsError, e:
+        sys.stderr.write("ERROR: %s\n" % e)
 
 # vim:expandtab:ts=4:softtabstop=4:autoindent
