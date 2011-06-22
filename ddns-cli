@@ -131,7 +131,7 @@ def parse_args():
         _parser.add_argument("--verbose", action="store_true", help="Verbose operation")
         _parser.add_argument("--debug", action="store_true", help="Extremely verbose operation")
 
-        _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA"), help="Record type, e.g. A, AAAA, PTR, etc.")
+        _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA", "NS", "PTR"), help="Record type, e.g. A, AAAA, PTR, etc.")
         _parser.add_argument("--zone", "-z", dest="zone", type=DDnsFQDN, help="Zone to work with. By default for www.host.example.com the zone would be host.example.com, however you may instead want to put a record 'www.host' into the zone 'example.com'. In that case use --zone example.com.")
         _parser.add_argument("rrname", help="Resource Record Name")
         if rrvalue_nargs:
@@ -232,6 +232,9 @@ class DDnsCli(object):
                 return True
             except socket.error:
                 return False
+        if rrtype in [ "PTR", "NS" ]:
+            return self.verify_fqdn(rrvalue)
+
         error("Unsupported RR type: %s" % rrtype)
         return False
 
