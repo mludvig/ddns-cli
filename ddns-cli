@@ -66,14 +66,16 @@ def warning(message):
 def error(message):
     print("ERROR: %s" % message)
 
+def fixup_key_algo(key_algo):
+     return key_algo == "hmac-md5" and "HMAC-MD5.SIG-ALG.REG.INT" or key_algo
+
 def parse_key_file(key_file, key_name):
     try:
         f = open(key_file, "r").read()
         pat = re.compile('key\s+[\'"]?(\S+?)[\'"]?\s*{.*?algorithm\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?secret\s+[\'"]?([^\'";]+?)[\'"]?\s*;.*?};', re.DOTALL | re.MULTILINE)
         for key in pat.finditer(f):
             key = list(key.groups())
-            if key[1] == "hmac-md5":
-                key[1] = "HMAC-MD5.SIG-ALG.REG.INT"
+            key[1] = fixup_key_algo(key[1])
             if key[0] == key_name:
                 return key
         raise KeyNotFoundInFile(key_file, key_name)
@@ -119,6 +121,7 @@ def find_key(zone, server):
         key_name, key_algo, key_value = parse_key_file(key_file, key_name)
     else:
         key_algo, key_name, key_value = key.split(":", 2)
+    key_algo = fixup_key_algo(key_algo)
     debug("Key for zone '%s': %s:%s (%s)" % (zone, key_name, key_value, key_algo))
     return dns.tsigkeyring.from_text({key_name : key_value}), key_algo
 
