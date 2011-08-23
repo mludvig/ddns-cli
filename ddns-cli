@@ -47,6 +47,14 @@ class KeyNotFoundInFile(DDnsError):
     def __str__(self):
         return "%s: %s" % (self.key_file, self.key_name)
 
+class KeyNotFound(DDnsError):
+    def __init__(self, zone, server):
+        self.zone = zone
+        self.server = server
+
+    def __str__(self):
+        return "zone: %s, server: %s" % (self.zone, self.server)
+
 class DDnsServerNotFound(DDnsError):
     def __str__(self):
         return "Server not found for zone: %s" % (self.message)
@@ -105,14 +113,13 @@ def find_key(zone, server):
 
     Figure out a signing key usable for a given zone.
     """
-    key = None
     if ZONE_KEY.has_key(zone):
-        key = ZONE_KEY[zone]
+        return ZONE_KEY[zone]
     elif SERVER_KEY.has_key(server):
-        key = SERVER_KEY[server]
-    if not key:
-        raise KeyNotFound(zone, server)
+        return SERVER_KEY[server]
+    raise KeyNotFound(zone, server)
 
+def parse_key(key):
     # key can have one of the following formats:
     # - inline key: 'algorithm:name:AbCd=='
     # - file with key name: '/etc/rndc.conf:ddns_key'
@@ -122,7 +129,7 @@ def find_key(zone, server):
     else:
         key_algo, key_name, key_value = key.split(":", 2)
     key_algo = fixup_key_algo(key_algo)
-    debug("Key for zone '%s': %s:%s (%s)" % (zone, key_name, key_value, key_algo))
+    debug("Auth key: %s:%s:%s" % (key_algo, key_name, key_value))
     return dns.tsigkeyring.from_text({key_name : key_value}), key_algo
 
 class DDnsFQDN(str):
@@ -133,6 +140,8 @@ def parse_args():
         _parser.add_argument("--config", type=file, help="Config file location")
         _parser.add_argument("--verbose", action="store_true", help="Verbose operation")
         _parser.add_argument("--debug", action="store_true", help="Extremely verbose operation")
+        _parser.add_argument("--server", dest="server", action="store", help="Override server address")
+        _parser.add_argument("--auth-key", dest="authkey", action="store", help="Override authentication key (<name>:<algo>:<base64-encoded-key>)")
 
         _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA", "NS", "PTR"), help="Record type, e.g. A, AAAA, PTR, etc.")
         _parser.add_argument("--zone", "-z", dest="zone", type=DDnsFQDN, help="Zone to work with. By default for www.host.example.com the zone would be host.example.com, however you may instead want to put a record 'www.host' into the zone 'example.com'. In that case use --zone example.com.")
@@ -205,9 +214,25 @@ class DDnsCli(object):
         ddns_args['host'] = ddns_args['host'].strip(".")
         ddns_args['zone'] = ddns_args['zone'].strip(".")
 
-        ddns_args['server'] = find_server(ddns_args['zone'])
+        if self.args.server:
+            ddns_args['server'] = self.args.server
+        else:
+            ddns_args['server'] = find_server(ddns_args['zone'])
         info("Server for zone '%(zone)s': %(server)s" % ddns_args)
-        ddns_args['keyring'], ddns_args['keyalgorithm'] = find_key(ddns_args['zone'], ddns_args['server'])
+        if self.args.authkey:
+            ddns_args['key'] = self.args.authkey
+        else:
+            try:
+                ddns_args['key'] = find_key(ddns_args['zone'], ddns_args['server'])
+            except KeyNotFound, e:
+                # If the server addr was overriden by --server arg
+                # retry with server found in the config
+                if e.server == self.args.server:
+                    conf_server = find_server(ddns_args['zone'])
+                    ddns_args['key'] = find_key(ddns_args['zone'], conf_server)
+                else:
+                    raise
+        ddns_args['keyring'], ddns_args['keyalgorithm'] = parse_key(ddns_args['key'])
 
         return ddns_args
 
