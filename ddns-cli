@@ -24,8 +24,11 @@ import socket
 import argparse
 
 import dns.query
+import dns.zone
 import dns.tsigkeyring
 import dns.update
+
+import dns.reversename
 
 ZONE_SERVER = {}
 ZONE_KEY = {}
@@ -160,8 +163,8 @@ def parse_args():
     parser_set.add_argument("--ttl", dest="rrttl", type=int, default=TTL_DEFAULT, help="Time To Live")
     _add_common_args(parser_set, rrvalue_nargs = "+")
 
-    #parser_get = subparsers.add_parser("get", help="Get all records for the given name")
-    #_add_common_args(parser_get, rrvalue_nargs = None)
+    parser_get = subparsers.add_parser("get", help="Get all records for the given name")
+    _add_common_args(parser_get, rrvalue_nargs = None)
 
     parser_delete = subparsers.add_parser("delete", help="Delete some or all records for the given name")
     _add_common_args(parser_delete, rrvalue_nargs = "*")
@@ -173,8 +176,8 @@ class DDnsCli(object):
         self.args = args
         if args.command == "set":
             return self.cmd_set()
-        #elif args.command == "get":
-        #    return self.cmd_get()
+        elif args.command == "get":
+            return self.cmd_get()
         elif args.command == "delete":
             return self.cmd_delete()
         else:
@@ -309,6 +312,31 @@ class DDnsCli(object):
                 update.delete(ddns_args['host'], record['rrtype'], record['rrvalue'])
         response = dns.query.tcp(update, ddns_args['server'])
         info("DELETE: %s" % (dns.rcode.to_text(response.rcode())))
+
+    def cmd_get(self):
+        ddns_args = self.init_ddns_args()
+        debug("ddns_args: %r" % ddns_args)
+        
+        z = dns.zone.from_xfr(dns.query.xfr(ddns_args['server'], ddns_args['zone']))
+        names = z.nodes.keys()
+        names.sort()
+
+        print "\nForward Zone: %s :" % ddns_args['zone']
+        for n in names:
+            print z[n].to_text(n)
+
+        print "\nReverse Zone derived from above forward zone:"
+        reverse_map = {}
+        for (name, ttl, rdata) in z.iterate_rdatas('A'):
+            l = reverse_map.get(rdata.address)
+            if l is None:
+                l = []
+                reverse_map[rdata.address] = l
+            l.append(name)
+        keys = reverse_map.keys()
+        keys.sort(lambda a1, a2: cmp(dns.ipv4.inet_aton(a1), dns.ipv4.inet_aton(a2)))
+        for k in keys:
+            print "%s\tPTR\t%s" % (reverse_map[k][0], dns.reversename.from_address(k))
 
 if __name__ == "__main__":
     args = parse_args()
