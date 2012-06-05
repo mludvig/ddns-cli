@@ -163,8 +163,8 @@ def parse_args():
     parser_set.add_argument("--ttl", dest="rrttl", type=int, default=TTL_DEFAULT, help="Time To Live")
     _add_common_args(parser_set, rrvalue_nargs = "+")
 
-    parser_get = subparsers.add_parser("get", help="Get all records for the given name")
-    _add_common_args(parser_get, rrvalue_nargs = None)
+    #parser_get = subparsers.add_parser("get", help="Get all records for the given name")
+    #_add_common_args(parser_get, rrvalue_nargs = None)
 
     parser_delete = subparsers.add_parser("delete", help="Delete some or all records for the given name")
     _add_common_args(parser_delete, rrvalue_nargs = "*")
@@ -176,8 +176,8 @@ class DDnsCli(object):
         self.args = args
         if args.command == "set":
             return self.cmd_set()
-        elif args.command == "get":
-            return self.cmd_get()
+        #elif args.command == "get":
+        #    return self.cmd_get()
         elif args.command == "delete":
             return self.cmd_delete()
         else:
@@ -273,12 +273,13 @@ class DDnsCli(object):
         return rrvalue.count(".") > 0
 
     def cmd_set(self):
+
         ddns_args = self.init_ddns_args()
         records = self.compile_records()
 
         debug("ddns_args: %r" % ddns_args)
         update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
-
+        
         if self.args.replace:
             op_str = "REPLACE"
             op_method = update.replace
@@ -289,8 +290,31 @@ class DDnsCli(object):
         for record in records:
             info("%s: %s.%s(%s, %s)" % (op_str, ddns_args['host'], ddns_args['zone'], record['rrvalue'], record['rrtype']))
             op_method(ddns_args['host'], self.args.rrttl, record['rrtype'], record['rrvalue'])
+            
+            #ptrUpdate - IPv4 only at this stage.
+            if record['rrtype'] == 'A':
+                # find reverse zone name
+                rev_name = dns.reversename.from_address(record['rrvalue'])
+                rev_host, rev_zone  = rev_name.split(len(rev_name) -1 )
+                rev_value = "%s.%s." % (ddns_args['host'], ddns_args['zone'])
+                print "rev_name = %s" % rev_name
+                print "rev_host = %s" % rev_host
+                print "rev_zone = %s" % rev_zone
+                print "rev_value = %s" % rev_value
+
+                ptrUpdate = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+                info("%s: %s.%s(%s, %s)" % (op_str, rev_host, rev_zone, rev_value, 'PTR'))
+                if op_str == "REPLACE":
+                    ptrUpdate.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
+                elif op_str == "ADD":
+                    ptrUpdate.add(rev_name, self.args.rrttl, 'PTR', rev_value)
+            else:
+                ptrUpdate = None
 
         response = dns.query.tcp(update, ddns_args['server'])
+        if ptrUpdate is not None:
+            ptrResponse = dns.query.tcp(ptrUpdate, ddns_args['server'])
+
         info("%s: %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
     def cmd_delete(self):
@@ -312,31 +336,6 @@ class DDnsCli(object):
                 update.delete(ddns_args['host'], record['rrtype'], record['rrvalue'])
         response = dns.query.tcp(update, ddns_args['server'])
         info("DELETE: %s" % (dns.rcode.to_text(response.rcode())))
-
-    def cmd_get(self):
-        ddns_args = self.init_ddns_args()
-        debug("ddns_args: %r" % ddns_args)
-        
-        z = dns.zone.from_xfr(dns.query.xfr(ddns_args['server'], ddns_args['zone']))
-        names = z.nodes.keys()
-        names.sort()
-
-        print "\nForward Zone: %s :" % ddns_args['zone']
-        for n in names:
-            print z[n].to_text(n)
-
-        print "\nReverse Zone derived from above forward zone:"
-        reverse_map = {}
-        for (name, ttl, rdata) in z.iterate_rdatas('A'):
-            l = reverse_map.get(rdata.address)
-            if l is None:
-                l = []
-                reverse_map[rdata.address] = l
-            l.append(name)
-        keys = reverse_map.keys()
-        keys.sort(lambda a1, a2: cmp(dns.ipv4.inet_aton(a1), dns.ipv4.inet_aton(a2)))
-        for k in keys:
-            print "%s\tPTR\t%s" % (reverse_map[k][0], dns.reversename.from_address(k))
 
 if __name__ == "__main__":
     args = parse_args()
