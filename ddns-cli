@@ -272,6 +272,16 @@ class DDnsCli(object):
     def verify_fqdn(self, rrvalue):
         return rrvalue.count(".") > 0
 
+    def make_reverse_zone(self, ip_address):
+        if ip_address.count(".") == 3:
+            #IPv4
+            rev_name = dns.reversename.from_address(ip_address)
+            rev_host, rev_zone = rev_name.split(len(rev_name) -1)
+            return rev_host, rev_zone
+        else:
+            #IPv6
+            pass
+
     def cmd_set(self):
 
         ddns_args = self.init_ddns_args()
@@ -279,7 +289,7 @@ class DDnsCli(object):
 
         debug("ddns_args: %r" % ddns_args)
         update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
-        
+
         if self.args.replace:
             op_str = "REPLACE"
             op_method = update.replace
@@ -290,32 +300,22 @@ class DDnsCli(object):
         for record in records:
             info("%s: %s.%s(%s, %s)" % (op_str, ddns_args['host'], ddns_args['zone'], record['rrvalue'], record['rrtype']))
             op_method(ddns_args['host'], self.args.rrttl, record['rrtype'], record['rrvalue'])
-            
-            #ptrUpdate - IPv4 only at this stage.
+            response = dns.query.tcp(update, ddns_args['server'])
+            info("%s, %s" % (op_str, dns.rcode.to_text(response.rcode())))
+
+            #ptrUpdate - IPv4 only at this stage - No IPv6 Reverse Zones to test with.
             if record['rrtype'] == 'A':
-                # find reverse zone name
-                rev_name = dns.reversename.from_address(record['rrvalue'])
-                rev_host, rev_zone  = rev_name.split(len(rev_name) -1 )
+                rev_host, rev_zone = self.make_reverse_zone(record['rrvalue'])
                 rev_value = "%s.%s." % (ddns_args['host'], ddns_args['zone'])
-                print "rev_name = %s" % rev_name
-                print "rev_host = %s" % rev_host
-                print "rev_zone = %s" % rev_zone
-                print "rev_value = %s" % rev_value
 
                 ptrUpdate = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+
+                # Always replace even if we are doing an add in forward zone
+                ptrUpdate.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
+
                 info("%s: %s.%s(%s, %s)" % (op_str, rev_host, rev_zone, rev_value, 'PTR'))
-                if op_str == "REPLACE":
-                    ptrUpdate.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
-                elif op_str == "ADD":
-                    ptrUpdate.add(rev_name, self.args.rrttl, 'PTR', rev_value)
-            else:
-                ptrUpdate = None
-
-        response = dns.query.tcp(update, ddns_args['server'])
-        if ptrUpdate is not None:
-            ptrResponse = dns.query.tcp(ptrUpdate, ddns_args['server'])
-
-        info("%s: %s" % (op_str, dns.rcode.to_text(response.rcode())))
+                ptrResponse = dns.query.tcp(ptrUpdate, ddns_args['server'])
+                info("%s: %s" % (op_str, dns.rcode.to_text(ptrResponse.rcode())))
 
     def cmd_delete(self):
         ddns_args = self.init_ddns_args()
