@@ -306,7 +306,6 @@ class DDnsCli(object):
             response = dns.query.tcp(update, ddns_args['server'])
             info("%s, %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
-            #ptrUpdate - IPv4 only at this stage - No IPv6 Reverse Zones to test with.
             if record['rrtype'] == 'A' or record['rrtype'] == 'AAAA':
                 rev_host, rev_zone = self.make_reverse(record['rrvalue'])
                 rev_value = "%s.%s." % (ddns_args['host'], ddns_args['zone'])
