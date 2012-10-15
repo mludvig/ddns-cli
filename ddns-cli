@@ -149,7 +149,7 @@ def parse_args():
 
         _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA", "NS", "CNAME", "PTR"), help="Record type, e.g. A, AAAA, PTR, etc.")
         _parser.add_argument("--zone", "-z", dest="zone", type=DDnsFQDN, help="Zone to work with. By default for www.host.example.com the zone would be host.example.com, however you may instead want to put a record 'www.host' into the zone 'example.com'. In that case use --zone example.com.")
-        _parser.add_argument("rrev_name", help="Resource Record Name")
+        _parser.add_argument("rrname", help="Resource Record Name")
         if rrvalue_nargs:
             _parser.add_argument("rrvalue", nargs=rrvalue_nargs, help="Resource Record Value")
 
@@ -206,14 +206,14 @@ class DDnsCli(object):
 
         if self.args.zone:
             # Explicit zone was specified
-            ddns_args['host'] = self.args.rrev_name.replace(self.args.zone, "")
+            ddns_args['host'] = self.args.rrname.replace(self.args.zone, "")
             ddns_args['zone'] = self.args.zone
         else:
-            # No explicit zone. Guess it from FQDN (rrev_name)
+            # No explicit zone. Guess it from FQDN (rrname)
             try:
-                ddns_args['host'], ddns_args['zone'] = self.args.rrev_name.split(".", 1)
+                ddns_args['host'], ddns_args['zone'] = self.args.rrname.split(".", 1)
             except ValueError:
-                raise ParameterError("%s: Hostname is not fully qualified. Append your domain please." % self.args.rrev_name)
+                raise ParameterError("%s: Hostname is not fully qualified. Append your domain please." % self.args.rrname)
 
         ddns_args['host'] = ddns_args['host'].strip(".")
         ddns_args['zone'] = ddns_args['zone'].strip(".")
@@ -331,7 +331,7 @@ class DDnsCli(object):
         myResolver.nameservers = [ddns_args['server']]
 
         try:
-            answers = myResolver.query(self.args.rrev_name, 'A')
+            answers = myResolver.query(self.args.rrname, 'A')
         except Exception, e:
             pass
 
@@ -339,7 +339,7 @@ class DDnsCli(object):
             ips.append({'type': 'A', 'value': rdata.address})
 
         try:
-            answers = myResolver.query(self.args.rrev_name, 'AAAA')
+            answers = myResolver.query(self.args.rrname, 'AAAA')
         except Exception, e:
             pass
 
