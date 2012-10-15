@@ -143,7 +143,7 @@ def parse_args():
         _parser.add_argument("--server", dest="server", action="store", help="Override server address")
         _parser.add_argument("--auth-key", dest="authkey", action="store", help="Override authentication key (<name>:<algo>:<base64-encoded-key>)")
 
-        _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA", "NS", "PTR"), help="Record type, e.g. A, AAAA, PTR, etc.")
+        _parser.add_argument("--type", "-t", dest="rrtype", choices=("A", "AAAA", "NS", "CNAME", "PTR"), help="Record type, e.g. A, AAAA, PTR, etc.")
         _parser.add_argument("--zone", "-z", dest="zone", type=DDnsFQDN, help="Zone to work with. By default for www.host.example.com the zone would be host.example.com, however you may instead want to put a record 'www.host' into the zone 'example.com'. In that case use --zone example.com.")
         _parser.add_argument("rrname", help="Resource Record Name")
         if rrvalue_nargs:
@@ -260,7 +260,7 @@ class DDnsCli(object):
                 return True
             except socket.error:
                 return False
-        if rrtype in [ "PTR", "NS" ]:
+        if rrtype in [ "PTR", "NS", "CNAME" ]:
             return self.verify_fqdn(rrvalue)
 
         error("Unsupported RR type: %s" % rrtype)
