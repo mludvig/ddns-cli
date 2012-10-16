@@ -144,6 +144,7 @@ def parse_args():
         _parser.add_argument("--config", type=file, help="Config file location")
         _parser.add_argument("--verbose", action="store_true", help="Verbose operation")
         _parser.add_argument("--debug", action="store_true", help="Extremely verbose operation")
+        _parser.add_argument("--dry-run", "-n", dest="dry_run", action="store_true", help="Do not make any changes.")
         _parser.add_argument("--server", dest="server", action="store", help="Override server address")
         _parser.add_argument("--auth-key", dest="authkey", action="store", help="Override authentication key (<name>:<algo>:<base64-encoded-key>)")
 
@@ -303,8 +304,9 @@ class DDnsCli(object):
         for record in records:
             info("%s: %s.%s(%s, %s)" % (op_str, ddns_args['host'], ddns_args['zone'], record['rrvalue'], record['rrtype']))
             op_method(ddns_args['host'], self.args.rrttl, record['rrtype'], record['rrvalue'])
-            response = dns.query.tcp(update, ddns_args['server'])
-            info("%s, %s" % (op_str, dns.rcode.to_text(response.rcode())))
+            if not self.args.dry_run:
+                response = dns.query.tcp(update, ddns_args['server'])
+                info("%s, %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
             if record['rrtype'] == 'A' or record['rrtype'] == 'AAAA':
                 rev_host, rev_zone = self.make_reverse(record['rrvalue'])
@@ -316,8 +318,9 @@ class DDnsCli(object):
                 ptr_update.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
 
                 info("%s: %s.%s(%s, %s)" % (op_str, rev_host, rev_zone, rev_value, 'PTR'))
-                ptr_update = dns.query.tcp(ptr_update, ddns_args['server'])
-                info("%s: %s" % (op_str, dns.rcode.to_text(ptr_update.rcode())))
+                if not self.args.dry_run:
+                    response = dns.query.tcp(ptr_update, ddns_args['server'])
+                    info("%s: %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
     def cmd_delete(self):
         ddns_args = self.init_ddns_args()
@@ -370,8 +373,9 @@ class DDnsCli(object):
                             ptr_update.delete(rev_name, 'PTR')
                             flag = 1
             if flag == 1:
-                ptr_update = dns.query.tcp(ptr_update, ddns_args['server'])
-                info("REV ZONE DELETE: %s" % (dns.rcode.to_text(ptr_update.rcode())))
+                if not self.args.dry_run:
+                    response = dns.query.tcp(ptr_update, ddns_args['server'])
+                    info("REV ZONE DELETE: %s" % (dns.rcode.to_text(response.rcode())))
 
         # Delete FWD zone records
         if not records:
@@ -386,8 +390,9 @@ class DDnsCli(object):
                 info("DELETE: %s.%s(%s, %s)" % (ddns_args['host'], ddns_args['zone'], record['rrtype'], record['rrvalue']))
                 update.delete(ddns_args['host'], record['rrtype'], record['rrvalue'])
 
-        response = dns.query.tcp(update, ddns_args['server'])
-        info("DELETE: %s" % (dns.rcode.to_text(response.rcode())))
+        if not self.args.dry_run:
+            response = dns.query.tcp(update, ddns_args['server'])
+            info("DELETE: %s" % (dns.rcode.to_text(response.rcode())))
 
 if __name__ == "__main__":
     args = parse_args()
