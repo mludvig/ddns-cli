@@ -310,14 +310,14 @@ class DDnsCli(object):
                 rev_host, rev_zone = self.make_reverse(record['rrvalue'])
                 rev_value = "%s.%s." % (ddns_args['host'], ddns_args['zone'])
 
-                ptrUpdate = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+                ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
 
                 # Always replace even if we are doing an add in forward zone
-                ptrUpdate.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
+                ptr_update.replace(rev_host, self.args.rrttl, 'PTR', rev_value)
 
                 info("%s: %s.%s(%s, %s)" % (op_str, rev_host, rev_zone, rev_value, 'PTR'))
-                ptrResponse = dns.query.tcp(ptrUpdate, ddns_args['server'])
-                info("%s: %s" % (op_str, dns.rcode.to_text(ptrResponse.rcode())))
+                ptr_update = dns.query.tcp(ptr_update, ddns_args['server'])
+                info("%s: %s" % (op_str, dns.rcode.to_text(ptr_update.rcode())))
 
     def cmd_delete(self):
         ddns_args = self.init_ddns_args()
@@ -327,51 +327,51 @@ class DDnsCli(object):
 
         # First delete any REV zone A or AAAA records that might exist
         ips = []
-        myResolver = dns.resolver.Resolver()
-        myResolver.nameservers = [ddns_args['server']]
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = [ddns_args['server']]
 
         try:
-            answers = myResolver.query(self.args.rrname, 'A')
+            answers = resolver.query(self.args.rrname, 'A')
+            for rdata in answers:
+                ips.append({'type': 'A', 'value': rdata.address})
         except Exception, e:
             pass
 
-        for rdata in answers:
-            ips.append({'type': 'A', 'value': rdata.address})
 
         try:
-            answers = myResolver.query(self.args.rrname, 'AAAA')
+            answers = resolver.query(self.args.rrname, 'AAAA')
+            for rdata in answers:
+                ips.append({'type': 'AAAA', 'value':rdata.address})
         except Exception, e:
             pass
 
-        for rdata in answers:
-            ips.append({'type': 'AAAA', 'value':rdata.address})
 
         for ip in ips:
             flag = 0
             rev_host, rev_zone = self.make_reverse(ip['value'])
             rev_name = "%s.%s" % (rev_host,rev_zone)
-            ptrUpdate = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+            ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
 
             if not records:
                 if not self.args.rrtype:
                     info("DELETE: %s(PTR)" % rev_name)
-                    ptrUpdate.delete(rev_name,'PTR')
+                    ptr_update.delete(rev_name,'PTR')
                     flag = 1
                 else:
                     if ip['type'] == self.args.rrtype:
                         info("DELETE: %s(PTR)" % (rev_name))
-                        ptrUpdate.delete(rev_name, 'PTR')
+                        ptr_update.delete(rev_name, 'PTR')
                         flag = 1
             else:
                 for record in records:
                     if ip['type'] == record['rrtype']:
                         if ip['value'] == record['rrvalue']:
                             info("DELETE: %s(PTR)" % (rev_name))
-                            ptrUpdate.delete(rev_name, 'PTR')
+                            ptr_update.delete(rev_name, 'PTR')
                             flag = 1
             if flag == 1:
-                ptrResponse = dns.query.tcp(ptrUpdate, ddns_args['server'])
-                info("REV ZONE DELETE: %s" % (dns.rcode.to_text(ptrResponse.rcode())))
+                ptr_update = dns.query.tcp(ptr_update, ddns_args['server'])
+                info("REV ZONE DELETE: %s" % (dns.rcode.to_text(ptr_update.rcode())))
 
         # Delete FWD zone records
         if not records:
