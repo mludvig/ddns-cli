@@ -333,21 +333,16 @@ class DDnsCli(object):
         resolver = dns.resolver.Resolver()
         resolver.nameservers = [ddns_args['server']]
 
-        try:
-            answers = resolver.query(self.args.rrname, 'A')
-            for rdata in answers:
-                ips.append({'type': 'A', 'value': rdata.address})
-        except Exception, e:
-            pass
+        debug("resolving(%s, A)" % self.args.rrname)
+        answers = resolver.query(self.args.rrname, 'A')
+        for rdata in answers:
+            ips.append({'type': 'A', 'value': rdata.address})
+            debug("(%s, A) -> %s" % (self.args.rrname, rdata.address))
 
-
-        try:
-            answers = resolver.query(self.args.rrname, 'AAAA')
-            for rdata in answers:
-                ips.append({'type': 'AAAA', 'value':rdata.address})
-        except Exception, e:
-            pass
-
+        debug("resolving(%s, AAAA)" % self.args.rrname)
+        answers = resolver.query(self.args.rrname, 'AAAA')
+        for rdata in answers:
+            ips.append({'type': 'AAAA', 'value':rdata.address})
 
         for ip in ips:
             flag = 0
