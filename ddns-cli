@@ -207,6 +207,20 @@ class DDnsCli(object):
                     raise ParameterError("%s: Not a valid %s type value" % (rrvalue, self.args.rrtype))
         return records
 
+    def guess_best_zone(self, rrname):
+        zone = rrname = str(rrname).lower().strip(".")
+        if rrname.count(".") < 1:
+            raise ParameterError("%s: Hostname is not fully qualified. Append your domain please." % rrname)
+        while zone:
+            if zone in ZONE_SERVER:
+                host = rrname[:-len(zone)].strip(".")
+                debug("guess_best_zone(%s) [found-zone]: host=%s, zone=%s" % (rrname, host, zone))
+                return host, zone
+            zone = ".".join(zone.split(".")[1:])
+        host, zone = rrname.split(".", 1)
+        debug("guess_best_zone(%s) [fallback]: host=%s, zone=%s" % (rrname, host, zone))
+        return host, zone
+
     def init_ddns_args(self):
         ddns_args = {}
 
@@ -216,10 +230,7 @@ class DDnsCli(object):
             ddns_args['zone'] = self.args.zone
         else:
             # No explicit zone. Guess it from FQDN (rrname)
-            try:
-                ddns_args['host'], ddns_args['zone'] = self.args.rrname.split(".", 1)
-            except ValueError:
-                raise ParameterError("%s: Hostname is not fully qualified. Append your domain please." % self.args.rrname)
+            ddns_args['host'], ddns_args['zone'] = self.guess_best_zone(self.args.rrname)
 
         ddns_args['host'] = ddns_args['host'].strip(".")
         ddns_args['zone'] = ddns_args['zone'].strip(".")
@@ -279,20 +290,7 @@ class DDnsCli(object):
     def verify_fqdn(self, rrvalue):
         return rrvalue.count(".") > 0
 
-    def make_reverse(self, ip_address):
-        if ip_address.count(".") == 3:
-            #IPv4
-            rev_name = dns.reversename.from_address(ip_address)
-            rev_host, rev_zone = rev_name.split(6)
-            return rev_host, rev_zone
-        else:
-            #IPv6
-            rev_name = dns.reversename.from_address(ip_address)
-            rev_host, rev_zone = rev_name.split(19)
-            return rev_host, rev_zone
-
     def cmd_set(self):
-
         ddns_args = self.init_ddns_args()
         records = self.compile_records()
 
@@ -314,7 +312,7 @@ class DDnsCli(object):
                 info("%s, %s" % (op_str, dns.rcode.to_text(response.rcode())))
 
             if record['rrtype'] == 'A' or record['rrtype'] == 'AAAA':
-                rev_host, rev_zone = self.make_reverse(record['rrvalue'])
+                rev_host, rev_zone = self.guess_best_zone(dns.reversename.from_address(record['rrvalue']))
                 rev_value = "%s.%s." % (ddns_args['host'], ddns_args['zone'])
 
                 ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
@@ -351,7 +349,7 @@ class DDnsCli(object):
 
         for ip in ips:
             flag = 0
-            rev_host, rev_zone = self.make_reverse(ip['value'])
+            rev_host, rev_zone = self.guess_best_zone(dns.reversename.from_address(ip['value']))
             rev_name = "%s.%s" % (rev_host,rev_zone)
             ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
 
