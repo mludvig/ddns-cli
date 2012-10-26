@@ -38,6 +38,11 @@ TTL_DEFAULT = 3600
 
 execfile("ddns-cli.conf")
 
+# Normalise config settings
+ZONE_SERVER = dict([(k.lower().strip('.'), v) for (k, v) in ZONE_SERVER.iteritems()])
+ZONE_KEY = dict([(k.lower().strip('.'), v) for (k, v) in ZONE_KEY.iteritems()])
+SERVER_KEY = dict([(k.lower().strip('.'), v) for (k, v) in SERVER_KEY.iteritems()])
+
 keyring = {}
 
 class DDnsError(Exception):
