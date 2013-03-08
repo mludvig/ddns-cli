@@ -331,49 +331,70 @@ class DDnsCli(object):
         debug("ddns_args: %r" % ddns_args)
         update = dns.update.Update(ddns_args['zone'], keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
 
-        # First delete any REV zone A or AAAA records that might exist
-        ips = []
+        revs = []
         resolver = dns.resolver.Resolver()
         resolver.nameservers = [ddns_args['server']]
 
-        debug("resolving(%s, A)" % self.args.rrname)
-        answers = resolver.query(self.args.rrname, 'A')
-        for rdata in answers:
-            ips.append({'type': 'A', 'value': rdata.address})
-            debug("(%s, A) -> %s" % (self.args.rrname, rdata.address))
+        rrname = self.args.rrname.strip(".")
 
-        debug("resolving(%s, AAAA)" % self.args.rrname)
-        answers = resolver.query(self.args.rrname, 'AAAA')
-        for rdata in answers:
-            ips.append({'type': 'AAAA', 'value':rdata.address})
+        # First delete any REV zone A or AAAA records that might exist
+        for rev_type in ("A", "AAAA"):
+            debug("resolving(%s, %s)" % (rrname, rev_type))
+            try:
+                answers = resolver.query(rrname, rev_type)
+                for rdata in answers:
+                    rev_rrtype = dns.rdatatype.to_text(rdata.rdtype)
+                    revs.append({'type': rev_rrtype, 'value': str(rdata)})
+                    debug("(%s, %s) -> %s" % (rrname, revs[-1]['type'], revs[-1]['value']))
+            except:
+                pass
 
-        for ip in ips:
+        for rev in revs:
             flag = 0
-            rev_host, rev_zone = self.guess_best_zone(dns.reversename.from_address(ip['value']))
-            rev_name = "%s.%s" % (rev_host,rev_zone)
-            ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
+            rev_verified = 0
 
+            rev_value = dns.reversename.from_address(rev['value'])
+            rev_host, rev_zone = self.guess_best_zone(rev_value)
+            rev_name = "%s.%s" % (rev_host, rev_zone)
+
+            # Verify that rev_value resolves back to rrname
+            try:
+                debug("resolving(%s, PTR)" % (rev_value))
+                answers = resolver.query(rev_value, "PTR")
+                for rdata in answers:
+                    rev_rev_name = str(rdata).rstrip(".")
+                    if rev_rev_name == rrname:
+                        debug("OK (%s, PTR)==%s" % (rev_value, rev_rev_name))
+                        break
+                    else:
+                        warning("Reverse-verification failed: %s(PTR)=>%s (expected: %s)" % (rev_value, rev_rev_name, rrname))
+                        continue
+            except:
+                warning("Unable to resolve %s(PTR)" % (rev_value))
+                continue
+
+            ptr_update = dns.update.Update(rev_zone, keyring=ddns_args['keyring'], keyalgorithm = ddns_args['keyalgorithm'])
             if not records:
                 if not self.args.rrtype:
                     info("DELETE: %s(PTR)" % rev_name)
                     ptr_update.delete(rev_name,'PTR')
                     flag = 1
                 else:
-                    if ip['type'] == self.args.rrtype:
+                    if rev['type'] == self.args.rrtype:
                         info("DELETE: %s(PTR)" % (rev_name))
                         ptr_update.delete(rev_name, 'PTR')
                         flag = 1
             else:
                 for record in records:
-                    if ip['type'] == record['rrtype']:
-                        if ip['value'] == record['rrvalue']:
+                    if rev['type'] == record['rrtype']:
+                        if rev['value'] == record['rrvalue']:
                             info("DELETE: %s(PTR)" % (rev_name))
                             ptr_update.delete(rev_name, 'PTR')
                             flag = 1
             if flag == 1:
                 if not self.args.dry_run:
                     response = dns.query.tcp(ptr_update, ddns_args['server'])
-                    info("REV ZONE DELETE: %s" % (dns.rcode.to_text(response.rcode())))
+                    debug("REV ZONE DELETE: %s" % (dns.rcode.to_text(response.rcode())))
 
         # Delete FWD zone records
         if not records:
